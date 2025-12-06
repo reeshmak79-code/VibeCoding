@@ -14,6 +14,7 @@ import com.trialsite.repository.UserRepository;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -38,6 +39,7 @@ public class PermissionController {
     private UserRepository userRepository;
     
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> grantPermission(
             @Valid @RequestBody PermissionRequest request,
             Authentication authentication) {
@@ -147,7 +149,17 @@ public class PermissionController {
         }
     }
     
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<List<PermissionResponse>> getUserPermissions(@PathVariable Long userId) {
+        List<DocumentPermission> permissions = permissionRepository.findByUserId(userId);
+        List<PermissionResponse> response = permissions.stream()
+                .map(PermissionResponse::new)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(response);
+    }
+    
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> revokePermission(@PathVariable Long id) {
         try {
             permissionRepository.deleteById(id);

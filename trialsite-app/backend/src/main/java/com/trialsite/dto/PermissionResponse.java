@@ -19,7 +19,9 @@ public class PermissionResponse {
     private String folderName;
     private Long userId;
     private String userName;
-    private String role;
+    private String userEmail;
+    private String userRole;  // User's role from users table (ADMIN, USER, AUDITOR, etc.)
+    private String role;  // Permission role (if granted to a role, not a user)
     private String grantedBy;
     private LocalDateTime grantedAt;
     
@@ -32,7 +34,9 @@ public class PermissionResponse {
         this.folderName = permission.getFolder() != null ? permission.getFolder().getFolderName() : null;
         this.userId = permission.getUser() != null ? permission.getUser().getId() : null;
         this.userName = permission.getUser() != null ? permission.getUser().getFullName() : null;
-        this.role = permission.getRole() != null ? permission.getRole().name() : null;
+        this.userEmail = permission.getUser() != null ? permission.getUser().getEmail() : null;
+        this.userRole = permission.getUser() != null ? permission.getUser().getRole().name() : null;  // User's role from users table
+        this.role = permission.getRole() != null ? permission.getRole().name() : null;  // Permission role (if granted to role)
         this.grantedBy = permission.getGrantedBy();
         this.grantedAt = permission.getGrantedAt();
     }

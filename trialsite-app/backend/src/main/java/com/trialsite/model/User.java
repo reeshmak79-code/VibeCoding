@@ -33,8 +33,8 @@ public class User {
     @Column(unique = true, nullable = false)
     private String email;
     
-    @NotBlank(message = "Password is required")
-    @Size(min = 6, message = "Password must be at least 6 characters")
+    // Password validation handled in controller (before BCrypt encoding)
+    // BCrypt hashes are always 60 chars, so no size constraint needed here
     @Column(nullable = false)
     private String password;
     
@@ -58,6 +58,9 @@ public class User {
     
     public enum Role {
         ADMIN,
-        USER
+        USER,
+        DOCTOR,
+        AUDITOR,
+        COORDINATOR
     }
 }

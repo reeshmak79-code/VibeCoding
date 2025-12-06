@@ -5,12 +5,14 @@ import com.trialsite.dto.FolderResponse;
 import com.trialsite.dto.MessageResponse;
 import com.trialsite.model.Folder;
 import com.trialsite.model.Project;
+import com.trialsite.repository.DocumentPermissionRepository;
 import com.trialsite.repository.FolderRepository;
 import com.trialsite.repository.ProjectRepository;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -26,6 +28,9 @@ public class FolderController {
     
     @Autowired
     private ProjectRepository projectRepository;
+    
+    @Autowired
+    private DocumentPermissionRepository permissionRepository;
     
     @PostMapping
     public ResponseEntity<?> createFolder(
@@ -105,6 +110,7 @@ public class FolderController {
     }
     
     @DeleteMapping("/{id}")
+    @Transactional
     public ResponseEntity<?> deleteFolder(@PathVariable Long id) {
         try {
             Folder folder = folderRepository.findById(id)
@@ -121,6 +127,11 @@ public class FolderController {
                         .body(new MessageResponse("Cannot delete folder with documents. Move or delete documents first."));
             }
             
+            // Delete all permissions associated with this folder first
+            // This must be done before deleting the folder to avoid foreign key constraint violations
+            permissionRepository.deleteByFolderId(id);
+            
+            // Now delete the folder
             folderRepository.delete(folder);
             return ResponseEntity.ok(new MessageResponse("Folder deleted successfully"));
             

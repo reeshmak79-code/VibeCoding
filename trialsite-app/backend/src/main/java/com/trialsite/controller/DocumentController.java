@@ -3,11 +3,15 @@ package com.trialsite.controller;
 import com.trialsite.dto.DocumentResponse;
 import com.trialsite.dto.MessageResponse;
 import com.trialsite.model.Document;
+import com.trialsite.model.DocumentPermission;
 import com.trialsite.model.Folder;
 import com.trialsite.model.Project;
+import com.trialsite.model.User;
+import com.trialsite.repository.DocumentPermissionRepository;
 import com.trialsite.repository.DocumentRepository;
 import com.trialsite.repository.FolderRepository;
 import com.trialsite.repository.ProjectRepository;
+import com.trialsite.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -16,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -45,6 +50,12 @@ public class DocumentController {
     @Autowired
     private FolderRepository folderRepository;
     
+    @Autowired
+    private DocumentPermissionRepository permissionRepository;
+    
+    @Autowired
+    private UserRepository userRepository;
+    
     private final String UPLOAD_DIR = "uploads/";
     
     public DocumentController() {
@@ -63,6 +74,14 @@ public class DocumentController {
             @RequestParam(value = "description", required = false) String description,
             @RequestParam(value = "folderId", required = false) Long folderId,
             Authentication authentication) {
+        
+        // Only ADMIN and DOCTOR can upload
+        User currentUser = userRepository.findByUsername(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (currentUser.getRole() != User.Role.ADMIN && currentUser.getRole() != User.Role.DOCTOR) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new MessageResponse("Access denied. Only admins and doctors can upload documents."));
+        }
         
         try {
             if (file.isEmpty()) {
@@ -125,19 +144,69 @@ public class DocumentController {
     }
     
     @GetMapping("/project/{projectId}")
-    public ResponseEntity<List<DocumentResponse>> getProjectDocuments(@PathVariable Long projectId) {
+    public ResponseEntity<List<DocumentResponse>> getProjectDocuments(
+            @PathVariable Long projectId,
+            Authentication authentication) {
         List<Document> documents = documentRepository.findByProjectId(projectId);
+        
+        // Filter by permissions for non-admin/doctor users
+        User currentUser = userRepository.findByUsername(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        
+        if (currentUser.getRole() != User.Role.ADMIN && currentUser.getRole() != User.Role.DOCTOR) {
+            documents = filterDocumentsByPermissions(documents, currentUser);
+        }
+        
         List<DocumentResponse> response = documents.stream()
-                .map(DocumentResponse::new)
+                .filter(doc -> {
+                    // Filter out documents with null project (data integrity issue)
+                    return doc.getProject() != null;
+                })
+                .map(doc -> {
+                    try {
+                        return new DocumentResponse(doc);
+                    } catch (Exception e) {
+                        // Log error but don't crash - return null and filter it out
+                        System.err.println("Error creating DocumentResponse for document ID " + doc.getId() + ": " + e.getMessage());
+                        e.printStackTrace();
+                        return null;
+                    }
+                })
+                .filter(docResponse -> docResponse != null)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(response);
     }
     
     @GetMapping("/folder/{folderId}")
-    public ResponseEntity<List<DocumentResponse>> getFolderDocuments(@PathVariable Long folderId) {
+    public ResponseEntity<List<DocumentResponse>> getFolderDocuments(
+            @PathVariable Long folderId,
+            Authentication authentication) {
         List<Document> documents = documentRepository.findByFolderId(folderId);
+        
+        // Filter by permissions for non-admin/doctor users
+        User currentUser = userRepository.findByUsername(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        
+        if (currentUser.getRole() != User.Role.ADMIN && currentUser.getRole() != User.Role.DOCTOR) {
+            documents = filterDocumentsByPermissions(documents, currentUser);
+        }
+        
         List<DocumentResponse> response = documents.stream()
-                .map(DocumentResponse::new)
+                .filter(doc -> {
+                    // Filter out documents with null project (data integrity issue)
+                    return doc.getProject() != null;
+                })
+                .map(doc -> {
+                    try {
+                        return new DocumentResponse(doc);
+                    } catch (Exception e) {
+                        // Log error but don't crash - return null and filter it out
+                        System.err.println("Error creating DocumentResponse for document ID " + doc.getId() + ": " + e.getMessage());
+                        e.printStackTrace();
+                        return null;
+                    }
+                })
+                .filter(docResponse -> docResponse != null)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(response);
     }
@@ -150,10 +219,23 @@ public class DocumentController {
     }
     
     @GetMapping("/download/{id}")
-    public ResponseEntity<Resource> downloadDocument(@PathVariable Long id) {
+    public ResponseEntity<Resource> downloadDocument(
+            @PathVariable Long id,
+            Authentication authentication) {
         try {
             Document document = documentRepository.findById(id)
                     .orElseThrow(() -> new RuntimeException("Document not found"));
+            
+            // Check permissions for non-admin/doctor users
+            User currentUser = userRepository.findByUsername(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+            
+            if (currentUser.getRole() != User.Role.ADMIN && currentUser.getRole() != User.Role.DOCTOR) {
+                if (!hasPermission(document, currentUser, DocumentPermission.PermissionType.READ)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(null);
+                }
+            }
             
             Path filePath = Paths.get(document.getFilePath());
             Resource resource = new UrlResource(filePath.toUri());
@@ -173,10 +255,28 @@ public class DocumentController {
     }
     
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteDocument(@PathVariable Long id) {
+    @Transactional
+    public ResponseEntity<?> deleteDocument(
+            @PathVariable Long id,
+            Authentication authentication) {
         try {
             Document document = documentRepository.findById(id)
                     .orElseThrow(() -> new RuntimeException("Document not found"));
+            
+            // Only ADMIN and DOCTOR can delete (or restricted users with DELETE permission)
+            User currentUser = userRepository.findByUsername(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+            
+            if (currentUser.getRole() != User.Role.ADMIN && currentUser.getRole() != User.Role.DOCTOR) {
+                if (!hasPermission(document, currentUser, DocumentPermission.PermissionType.DELETE)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(new MessageResponse("Access denied. You do not have DELETE permission for this document."));
+                }
+            }
+            
+            // Delete all permissions associated with this document first
+            // This must be done before deleting the document to avoid foreign key constraint violations
+            permissionRepository.deleteByDocumentId(id);
             
             // Delete file from disk
             Path filePath = Paths.get(document.getFilePath());
@@ -196,23 +296,150 @@ public class DocumentController {
     }
     
     @GetMapping("/stats/project/{projectId}")
-    public ResponseEntity<?> getProjectDocumentStats(@PathVariable Long projectId) {
-        List<Document> documents = documentRepository.findByProjectId(projectId);
-        
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("total", documents.size());
-        stats.put("totalSize", documents.stream().mapToLong(Document::getFileSize).sum());
-        
-        // Count by document type
-        Map<String, Long> byType = new HashMap<>();
-        for (Document.DocumentType type : Document.DocumentType.values()) {
-            long count = documents.stream()
-                    .filter(d -> d.getDocumentType() == type)
+    public ResponseEntity<?> getProjectDocumentStats(
+            @PathVariable Long projectId,
+            Authentication authentication) {
+        try {
+            List<Document> documents = documentRepository.findByProjectId(projectId);
+            
+            // Filter by permissions for non-admin/doctor users
+            User currentUser = userRepository.findByUsername(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+            
+            if (currentUser.getRole() != User.Role.ADMIN && currentUser.getRole() != User.Role.DOCTOR) {
+                documents = filterDocumentsByPermissions(documents, currentUser);
+            }
+            
+            // Filter out documents with null project (data integrity issue)
+            documents = documents.stream()
+                    .filter(doc -> doc.getProject() != null)
+                    .collect(Collectors.toList());
+            
+            Map<String, Object> stats = new HashMap<>();
+            stats.put("total", documents.size());
+            stats.put("totalSize", documents.stream()
+                    .filter(d -> d.getFileSize() != null)
+                    .mapToLong(Document::getFileSize)
+                    .sum());
+            
+            // Count by document type (handle null documentType)
+            Map<String, Long> byType = new HashMap<>();
+            for (Document.DocumentType type : Document.DocumentType.values()) {
+                long count = documents.stream()
+                        .filter(d -> d.getDocumentType() != null && d.getDocumentType() == type)
+                        .count();
+                byType.put(type.name(), count);
+            }
+            // Count documents with null documentType as "OTHER"
+            long nullTypeCount = documents.stream()
+                    .filter(d -> d.getDocumentType() == null)
                     .count();
-            byType.put(type.name(), count);
+            if (nullTypeCount > 0) {
+                byType.put("OTHER", byType.getOrDefault("OTHER", 0L) + nullTypeCount);
+            }
+            stats.put("byType", byType);
+            
+            return ResponseEntity.ok(stats);
+        } catch (Exception e) {
+            // Return empty stats instead of crashing
+            System.err.println("Error calculating stats for project " + projectId + ": " + e.getMessage());
+            e.printStackTrace();
+            Map<String, Object> stats = new HashMap<>();
+            stats.put("total", 0);
+            stats.put("totalSize", 0);
+            stats.put("byType", new HashMap<String, Long>());
+            return ResponseEntity.ok(stats);
         }
-        stats.put("byType", byType);
+    }
+    
+    // Helper method to filter documents by permissions for restricted users (USER, AUDITOR, etc.)
+    private List<Document> filterDocumentsByPermissions(List<Document> documents, User user) {
+        // Get all permissions for this user
+        List<DocumentPermission> userPermissions = permissionRepository.findByUserId(user.getId());
         
-        return ResponseEntity.ok(stats);
+        // Get document IDs and folder IDs that user has permission to
+        java.util.Set<Long> allowedDocumentIds = new java.util.HashSet<>();
+        java.util.Set<Long> allowedFolderIds = new java.util.HashSet<>();
+        
+        for (DocumentPermission perm : userPermissions) {
+            if (perm.getDocument() != null) {
+                allowedDocumentIds.add(perm.getDocument().getId());
+            }
+            if (perm.getFolder() != null) {
+                allowedFolderIds.add(perm.getFolder().getId());
+            }
+        }
+        
+        // Also check role-based permissions
+        List<DocumentPermission> rolePermissions = permissionRepository.findByRole(user.getRole());
+        for (DocumentPermission perm : rolePermissions) {
+            if (perm.getDocument() != null) {
+                allowedDocumentIds.add(perm.getDocument().getId());
+            }
+            if (perm.getFolder() != null) {
+                allowedFolderIds.add(perm.getFolder().getId());
+            }
+        }
+        
+        // Filter documents: user has permission to document OR document is in folder with permission
+        return documents.stream()
+                .filter(doc -> {
+                    return allowedDocumentIds.contains(doc.getId()) || 
+                           (doc.getFolder() != null && allowedFolderIds.contains(doc.getFolder().getId()));
+                })
+                .collect(Collectors.toList());
+    }
+    
+    // Helper method to check if user has specific permission for a document
+    private boolean hasPermission(Document document, User user, DocumentPermission.PermissionType requiredType) {
+        // Check direct document permission (user-specific)
+        List<DocumentPermission> docPermissions = permissionRepository.findByDocumentId(document.getId());
+        for (DocumentPermission perm : docPermissions) {
+            if (perm.getUser() != null && perm.getUser().getId().equals(user.getId())) {
+                // READ permission allows READ
+                // WRITE permission allows READ and WRITE
+                // DELETE permission allows READ, WRITE, and DELETE
+                if (requiredType == DocumentPermission.PermissionType.READ) {
+                    return true; // Any permission type allows READ
+                }
+                if (requiredType == DocumentPermission.PermissionType.DELETE) {
+                    return perm.getPermissionType() == DocumentPermission.PermissionType.DELETE;
+                }
+            }
+            // Check role-based permission
+            if (perm.getRole() != null && perm.getRole() == user.getRole()) {
+                if (requiredType == DocumentPermission.PermissionType.READ) {
+                    return true; // Any permission type allows READ
+                }
+                if (requiredType == DocumentPermission.PermissionType.DELETE) {
+                    return perm.getPermissionType() == DocumentPermission.PermissionType.DELETE;
+                }
+            }
+        }
+        
+        // Check folder permission (if document is in a folder)
+        if (document.getFolder() != null) {
+            List<DocumentPermission> folderPermissions = permissionRepository.findByFolderId(document.getFolder().getId());
+            for (DocumentPermission perm : folderPermissions) {
+                if (perm.getUser() != null && perm.getUser().getId().equals(user.getId())) {
+                    if (requiredType == DocumentPermission.PermissionType.READ) {
+                        return true;
+                    }
+                    if (requiredType == DocumentPermission.PermissionType.DELETE) {
+                        return perm.getPermissionType() == DocumentPermission.PermissionType.DELETE;
+                    }
+                }
+                if (perm.getRole() != null && perm.getRole() == user.getRole()) {
+                    if (requiredType == DocumentPermission.PermissionType.READ) {
+                        return true;
+                    }
+                    if (requiredType == DocumentPermission.PermissionType.DELETE) {
+                        return perm.getPermissionType() == DocumentPermission.PermissionType.DELETE;
+                    }
+                }
+            }
+        }
+        
+        return false;
     }
 }

@@ -26,5 +26,10 @@ export const permissionService = {
   revokePermission: async (id) => {
     const response = await axios.delete(`${API_URL}/${id}`)
     return response.data
+  },
+
+  getUserPermissions: async (userId) => {
+    const response = await axios.get(`${API_URL}/user/${userId}`)
+    return response.data
   }
 }

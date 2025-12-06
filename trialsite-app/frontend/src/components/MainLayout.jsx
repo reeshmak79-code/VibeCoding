@@ -6,7 +6,9 @@ import {
   CalendarOutlined,
   FileTextOutlined,
   LogoutOutlined,
-  DashboardOutlined
+  DashboardOutlined,
+  TeamOutlined,
+  EditOutlined
 } from '@ant-design/icons'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate, useLocation } from 'react-router-dom'
@@ -25,7 +27,26 @@ const MainLayout = ({ children }) => {
     navigate('/login')
   }
 
-  const menuItems = [
+  // Role-based menu items
+  const isAdminOrDoctor = user?.role === 'ADMIN' || user?.role === 'DOCTOR'
+  const hasRestrictedAccess = !isAdminOrDoctor // USER, AUDITOR, COORDINATOR, etc.
+  
+  const menuItems = hasRestrictedAccess ? [
+    // USER, AUDITOR, COORDINATOR: Only Documents (permission-filtered) and Signatures
+    {
+      key: '/documents',
+      icon: <FileTextOutlined />,
+      label: 'Documents',
+      onClick: () => navigate('/documents')
+    },
+    {
+      key: '/signatures',
+      icon: <EditOutlined />,
+      label: 'Signatures',
+      onClick: () => navigate('/signatures')
+    }
+  ] : [
+    // ADMIN and DOCTOR: Full access
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
@@ -56,6 +77,19 @@ const MainLayout = ({ children }) => {
       label: 'Documents',
       onClick: () => navigate('/documents')
     },
+    {
+      key: '/signatures',
+      icon: <EditOutlined />,
+      label: 'Signatures',
+      onClick: () => navigate('/signatures')
+    },
+    // Only show Users menu for ADMIN
+    ...(user?.role === 'ADMIN' ? [{
+      key: '/users',
+      icon: <TeamOutlined />,
+      label: 'Users',
+      onClick: () => navigate('/users')
+    }] : [])
   ]
 
   const selectedKey = menuItems.find(item => location.pathname.startsWith(item.key))?.key || '/dashboard'

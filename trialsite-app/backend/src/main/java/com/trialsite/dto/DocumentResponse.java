@@ -31,10 +31,19 @@ public class DocumentResponse {
         this.originalFileName = document.getOriginalFileName();
         this.fileSize = document.getFileSize();
         this.fileType = document.getFileType();
-        this.documentType = document.getDocumentType().name();
+        // Handle null documentType for old documents
+        this.documentType = document.getDocumentType() != null 
+            ? document.getDocumentType().name() 
+            : Document.DocumentType.OTHER.name();
         this.description = document.getDescription();
-        this.projectId = document.getProject().getId();
-        this.projectName = document.getProject().getProjectName();
+        // Handle null project (shouldn't happen, but safety check)
+        if (document.getProject() != null) {
+            this.projectId = document.getProject().getId();
+            this.projectName = document.getProject().getProjectName();
+        } else {
+            this.projectId = null;
+            this.projectName = null;
+        }
         this.folderId = document.getFolder() != null ? document.getFolder().getId() : null;
         this.folderName = document.getFolder() != null ? document.getFolder().getFolderName() : null;
         this.uploadedBy = document.getUploadedBy();
