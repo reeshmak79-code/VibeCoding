@@ -26,27 +26,69 @@ public class DocumentResponse {
     private LocalDateTime uploadedAt;
     
     public DocumentResponse(Document document) {
-        this.id = document.getId();
-        this.fileName = document.getFileName();
-        this.originalFileName = document.getOriginalFileName();
-        this.fileSize = document.getFileSize();
-        this.fileType = document.getFileType();
-        // Handle null documentType for old documents
-        this.documentType = document.getDocumentType() != null 
-            ? document.getDocumentType().name() 
-            : Document.DocumentType.OTHER.name();
-        this.description = document.getDescription();
-        // Handle null project (shouldn't happen, but safety check)
-        if (document.getProject() != null) {
-            this.projectId = document.getProject().getId();
-            this.projectName = document.getProject().getProjectName();
-        } else {
-            this.projectId = null;
-            this.projectName = null;
+        System.out.println("=== DEBUG DocumentResponse: Creating response for document ID: " + document.getId());
+        try {
+            this.id = document.getId();
+            System.out.println("=== DEBUG DocumentResponse: id = " + this.id);
+            
+            this.fileName = document.getFileName();
+            System.out.println("=== DEBUG DocumentResponse: fileName = " + this.fileName);
+            
+            this.originalFileName = document.getOriginalFileName();
+            System.out.println("=== DEBUG DocumentResponse: originalFileName = " + this.originalFileName);
+            
+            this.fileSize = document.getFileSize();
+            System.out.println("=== DEBUG DocumentResponse: fileSize = " + this.fileSize);
+            
+            this.fileType = document.getFileType();
+            System.out.println("=== DEBUG DocumentResponse: fileType = " + this.fileType);
+            
+            // Handle null documentType for old documents
+            if (document.getDocumentType() != null) {
+                this.documentType = document.getDocumentType().name();
+                System.out.println("=== DEBUG DocumentResponse: documentType = " + this.documentType);
+            } else {
+                System.out.println("=== DEBUG DocumentResponse: WARNING - documentType is NULL, using OTHER");
+                this.documentType = Document.DocumentType.OTHER.name();
+            }
+            
+            this.description = document.getDescription();
+            System.out.println("=== DEBUG DocumentResponse: description = " + this.description);
+            
+            // Handle null project (shouldn't happen, but safety check)
+            if (document.getProject() != null) {
+                this.projectId = document.getProject().getId();
+                this.projectName = document.getProject().getProjectName();
+                System.out.println("=== DEBUG DocumentResponse: projectId = " + this.projectId + ", projectName = " + this.projectName);
+            } else {
+                System.out.println("=== DEBUG DocumentResponse: WARNING - project is NULL");
+                this.projectId = null;
+                this.projectName = null;
+            }
+            
+            if (document.getFolder() != null) {
+                this.folderId = document.getFolder().getId();
+                this.folderName = document.getFolder().getFolderName();
+                System.out.println("=== DEBUG DocumentResponse: folderId = " + this.folderId + ", folderName = " + this.folderName);
+            } else {
+                this.folderId = null;
+                this.folderName = null;
+                System.out.println("=== DEBUG DocumentResponse: folder is null");
+            }
+            
+            this.uploadedBy = document.getUploadedBy();
+            System.out.println("=== DEBUG DocumentResponse: uploadedBy = " + this.uploadedBy);
+            
+            this.uploadedAt = document.getUploadedAt();
+            System.out.println("=== DEBUG DocumentResponse: uploadedAt = " + this.uploadedAt);
+            
+            System.out.println("=== DEBUG DocumentResponse: Successfully created response for document ID: " + document.getId());
+        } catch (Exception e) {
+            System.err.println("=== ERROR DocumentResponse: Exception creating response for document ID: " + document.getId());
+            System.err.println("=== ERROR DocumentResponse: Exception type: " + e.getClass().getName());
+            System.err.println("=== ERROR DocumentResponse: Exception message: " + e.getMessage());
+            e.printStackTrace();
+            throw e; // Re-throw to be caught by controller
         }
-        this.folderId = document.getFolder() != null ? document.getFolder().getId() : null;
-        this.folderName = document.getFolder() != null ? document.getFolder().getFolderName() : null;
-        this.uploadedBy = document.getUploadedBy();
-        this.uploadedAt = document.getUploadedAt();
     }
 }

@@ -96,11 +96,32 @@ This document explains how to set up and configure PandaDoc document signing int
    - Verify file exists and is readable
    - Check PandaDoc API status
 
-2. **"Signing URL not available"**
+2. **"Email not verified" or "403 Forbidden" error**
+   - **Problem**: The recipient email (the person who needs to sign) is not in your PandaDoc workspace
+   - **Understanding the Flow**:
+     - Admin (you) **requests** the signature → Your email doesn't need to be verified
+     - Document is sent **TO** the recipient (e.g., Steve@yahoo.com) → **This email must be verified**
+   - **Solution Options**:
+     
+     **Option A: Add recipient to PandaDoc workspace (Production)**
+     1. Go to PandaDoc → **Settings** → **Team**
+     2. Click **"Manage seats"** or **"Add User"**
+     3. Add the recipient email (e.g., Steve@yahoo.com) as a **Guest** user (free, read-only access)
+     4. The recipient will receive an invitation email
+     5. Once added, you can send signature requests to that email
+     
+     **Option B: Test with your own email (Testing)**
+     - When requesting a signature, select **yourself** (reeshmak79@gmail.com) as the recipient
+     - Since your email is already verified in PandaDoc, this will work immediately
+     - This allows you to test the full signature flow without adding other users
+     
+   - **For Production**: You'll need to add all recipient emails to your PandaDoc workspace as Guest users
+
+3. **"Signing URL not available"**
    - Document may not have been sent to PandaDoc successfully
    - Check PandaDoc dashboard for document status
 
-3. **Webhook not updating status**
+4. **Webhook not updating status**
    - Verify webhook URL is accessible from internet
    - Check webhook secret matches
    - Verify webhook events are enabled in PandaDoc

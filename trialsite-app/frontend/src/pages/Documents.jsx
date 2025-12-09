@@ -25,6 +25,7 @@ import {
   DownloadOutlined,
   DeleteOutlined,
   FileOutlined,
+  FileTextOutlined,
   FolderOutlined,
   FolderAddOutlined,
   LockOutlined,
@@ -45,10 +46,13 @@ const { Title } = Typography
 const { TextArea } = Input
 
 const Documents = () => {
+  console.log('=== FRONTEND DEBUG: Documents component rendering')
   const { user } = useAuth()
+  console.log('=== FRONTEND DEBUG: User from auth:', user)
   
   // Safety check - if user is not loaded yet, show loading state
   if (!user) {
+    console.log('=== FRONTEND DEBUG: No user, showing loading state')
     return (
       <Content style={{ margin: '24px 16px 0' }}>
         <div style={{ padding: 24, minHeight: 360, textAlign: 'center' }}>
@@ -61,6 +65,7 @@ const Documents = () => {
   const isAdmin = user?.role === 'ADMIN'
   const isAdminOrDoctor = user?.role === 'ADMIN' || user?.role === 'DOCTOR'
   const hasRestrictedAccess = !isAdminOrDoctor // USER, AUDITOR, COORDINATOR, etc. - need permission filtering
+  console.log('=== FRONTEND DEBUG: User role:', user?.role, 'isAdmin:', isAdmin, 'isAdminOrDoctor:', isAdminOrDoctor, 'hasRestrictedAccess:', hasRestrictedAccess)
   const [documents, setDocuments] = useState([])
   const [userPermissions, setUserPermissions] = useState([]) // Store user's permissions
   const [documentPermissionsMap, setDocumentPermissionsMap] = useState({}) // Map of documentId -> permissions array
@@ -84,6 +89,7 @@ const Documents = () => {
   const [signatureModalVisible, setSignatureModalVisible] = useState(false)
   const [selectedDocumentForSignature, setSelectedDocumentForSignature] = useState(null)
   const [signatureForm] = Form.useForm()
+  const [assigningSignature, setAssigningSignature] = useState(false)
 
   useEffect(() => {
     if (hasRestrictedAccess) {
@@ -105,17 +111,36 @@ const Documents = () => {
   
   // Reload permissions when documents change (for ADMIN/DOCTOR)
   useEffect(() => {
+    console.log('=== FRONTEND DEBUG: useEffect for permissions triggered', {
+      isAdminOrDoctor,
+      documentsLength: documents?.length,
+      selectedProject
+    })
+    
     if (isAdminOrDoctor && documents && documents.length > 0) {
       const docIds = documents.map(doc => doc.id).filter(id => id != null)
+      console.log('=== FRONTEND DEBUG: Document IDs for permissions:', docIds)
+      
       if (docIds.length > 0) {
         // Use a ref or delay to avoid race conditions
         const timer = setTimeout(() => {
+          console.log('=== FRONTEND DEBUG: Calling loadDocumentPermissions with:', docIds)
           loadDocumentPermissions(docIds).catch(error => {
-            console.error('Error loading document permissions:', error)
+            console.error('=== FRONTEND DEBUG: Error loading document permissions:', error)
+            console.error('=== FRONTEND DEBUG: Permission error details:', error.response?.data || error.message)
           })
         }, 50)
-        return () => clearTimeout(timer)
+        return () => {
+          console.log('=== FRONTEND DEBUG: Clearing permissions timer')
+          clearTimeout(timer)
+        }
       }
+    } else {
+      console.log('=== FRONTEND DEBUG: Skipping permissions load', {
+        isAdminOrDoctor,
+        hasDocuments: documents && documents.length > 0,
+        documentsLength: documents?.length
+      })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documents.length, selectedProject, isAdminOrDoctor])
@@ -166,7 +191,10 @@ const Documents = () => {
   }
 
   const loadDocuments = async (projectId, folderId = null) => {
+    console.log('=== FRONTEND DEBUG: loadDocuments called', { projectId, folderId, hasRestrictedAccess })
+    
     if (!projectId) {
+      console.log('=== FRONTEND DEBUG: No projectId, checking restricted access')
       // For restricted users, if no project selected, show all documents they have permission to
       if (hasRestrictedAccess) {
         await loadAllPermittedDocuments()
@@ -174,83 +202,133 @@ const Documents = () => {
       return
     }
     
+    console.log('=== FRONTEND DEBUG: Setting loading to true')
     setLoading(true)
     try {
+      console.log('=== FRONTEND DEBUG: About to fetch documents', { projectId, folderId })
       let docs
       if (folderId) {
+        console.log('=== FRONTEND DEBUG: Fetching folder documents for folderId:', folderId)
         docs = await documentService.getFolderDocuments(folderId)
+        console.log('=== FRONTEND DEBUG: Folder documents response:', docs)
       } else {
+        console.log('=== FRONTEND DEBUG: Fetching project documents for projectId:', projectId)
         docs = await documentService.getProjectDocuments(projectId)
+        console.log('=== FRONTEND DEBUG: Project documents response:', docs)
+        console.log('=== FRONTEND DEBUG: Response type:', typeof docs)
+        console.log('=== FRONTEND DEBUG: Is array?', Array.isArray(docs))
+        console.log('=== FRONTEND DEBUG: Response length:', docs?.length)
       }
       
       // Backend already filters for restricted users
-      console.log('Loaded documents:', docs?.length || 0, 'for project:', projectId, 'folder:', folderId)
+      console.log('=== FRONTEND DEBUG: Raw documents received:', docs?.length || 0, 'for project:', projectId, 'folder:', folderId)
+      console.log('=== FRONTEND DEBUG: Full response:', JSON.stringify(docs, null, 2))
       
       // Filter out any null or invalid documents (safety check)
-      const docsList = (docs || []).filter(doc => {
+      console.log('=== FRONTEND DEBUG: Starting document filtering')
+      const docsList = (docs || []).filter((doc, index) => {
+        console.log(`=== FRONTEND DEBUG: Filtering document ${index}:`, doc)
         if (!doc || !doc.id) {
-          console.warn('Invalid document found:', doc)
+          console.warn('=== FRONTEND DEBUG: Invalid document found (no doc or no id):', doc)
           return false
         }
         // Ensure documentType is valid
         if (!doc.documentType) {
-          console.warn('Document missing documentType, setting to OTHER:', doc.id)
+          console.warn('=== FRONTEND DEBUG: Document missing documentType, setting to OTHER:', doc.id)
           doc.documentType = 'OTHER'
         }
+        console.log(`=== FRONTEND DEBUG: Document ${index} passed filter:`, doc.id, doc.originalFileName)
         return true
       })
       
+      console.log('=== FRONTEND DEBUG: Filtered documents count:', docsList.length)
+      console.log('=== FRONTEND DEBUG: Setting documents state')
       setDocuments(docsList)
+      console.log('=== FRONTEND DEBUG: Documents state set successfully')
       
       // Load stats separately with error handling
       try {
+        console.log('=== FRONTEND DEBUG: Loading stats for projectId:', projectId)
         const statsData = await documentService.getProjectDocumentStats(projectId)
+        console.log('=== FRONTEND DEBUG: Stats received:', statsData)
         setStats(statsData || { total: 0, totalSize: 0, byType: {} })
       } catch (statsError) {
-        console.error('Error loading stats (non-critical):', statsError)
+        console.error('=== FRONTEND DEBUG: Error loading stats (non-critical):', statsError)
+        console.error('=== FRONTEND DEBUG: Stats error details:', statsError.response?.data || statsError.message)
         // Don't fail the whole page if stats fail
         setStats({ total: docsList.length, totalSize: 0, byType: {} })
       }
       
+      console.log('=== FRONTEND DEBUG: loadDocuments completed successfully')
       // Load permissions for all documents (only for ADMIN and DOCTOR)
       // Note: This will be triggered by useEffect when documents change
     } catch (error) {
-      console.error('Error loading documents:', error)
-      console.error('Error details:', error.response?.data || error.message)
+      console.error('=== FRONTEND DEBUG: ERROR in loadDocuments')
+      console.error('=== FRONTEND DEBUG: Error object:', error)
+      console.error('=== FRONTEND DEBUG: Error type:', error?.constructor?.name)
+      console.error('=== FRONTEND DEBUG: Error message:', error?.message)
+      console.error('=== FRONTEND DEBUG: Error response:', error?.response)
+      console.error('=== FRONTEND DEBUG: Error response data:', error?.response?.data)
+      console.error('=== FRONTEND DEBUG: Error response status:', error?.response?.status)
+      console.error('=== FRONTEND DEBUG: Error stack:', error?.stack)
       message.error('Failed to load documents: ' + (error.response?.data?.message || error.message))
       setDocuments([])
       setStats({ total: 0, totalSize: 0, byType: {} })
     } finally {
+      console.log('=== FRONTEND DEBUG: Setting loading to false')
       setLoading(false)
     }
   }
 
   const loadDocumentPermissions = async (documentIds) => {
-    if (!isAdminOrDoctor || !documentIds || documentIds.length === 0) return
+    console.log('=== FRONTEND DEBUG: loadDocumentPermissions called', {
+      isAdminOrDoctor,
+      documentIds,
+      documentIdsLength: documentIds?.length
+    })
+    
+    if (!isAdminOrDoctor || !documentIds || documentIds.length === 0) {
+      console.log('=== FRONTEND DEBUG: Skipping permissions load - conditions not met')
+      return
+    }
     
     try {
+      console.log('=== FRONTEND DEBUG: Starting to load permissions for', documentIds.length, 'documents')
       // Load all permissions first, then update state once
       const permissionsMap = {}
       
       for (const docId of documentIds) {
         try {
+          console.log('=== FRONTEND DEBUG: Loading permissions for document ID:', docId)
           // Get ONLY direct document permissions (NOT folder permissions)
           // Folder permissions apply to access control but should NOT be displayed as document permissions
           const docPerms = await permissionService.getDocumentPermissions(docId)
+          console.log('=== FRONTEND DEBUG: Permissions for document', docId, ':', docPerms)
           permissionsMap[docId] = docPerms || []
         } catch (error) {
-          console.error(`Error loading permissions for document ${docId}:`, error)
+          console.error(`=== FRONTEND DEBUG: Error loading permissions for document ${docId}:`, error)
+          console.error('=== FRONTEND DEBUG: Permission error details:', error.response?.data || error.message)
           // Don't set empty array - preserve existing permissions
+          permissionsMap[docId] = []
         }
       }
       
+      console.log('=== FRONTEND DEBUG: All permissions loaded, updating state with:', permissionsMap)
       // Update state once with all new permissions, preserving existing ones
-      setDocumentPermissionsMap(prevMap => ({
-        ...prevMap, // Keep existing permissions for documents not being reloaded
-        ...permissionsMap // Update with new permissions
-      }))
+      setDocumentPermissionsMap(prevMap => {
+        const newMap = {
+          ...prevMap, // Keep existing permissions for documents not being reloaded
+          ...permissionsMap // Update with new permissions
+        }
+        console.log('=== FRONTEND DEBUG: New permissions map:', newMap)
+        return newMap
+      })
+      console.log('=== FRONTEND DEBUG: Permissions state updated successfully')
     } catch (error) {
-      console.error('Error loading document permissions:', error)
+      console.error('=== FRONTEND DEBUG: FATAL ERROR in loadDocumentPermissions:', error)
+      console.error('=== FRONTEND DEBUG: Error type:', error?.constructor?.name)
+      console.error('=== FRONTEND DEBUG: Error message:', error?.message)
+      console.error('=== FRONTEND DEBUG: Error stack:', error?.stack)
     }
   }
 
@@ -376,8 +454,11 @@ const Documents = () => {
   }, [hasRestrictedAccess, userPermissions])
 
   const handleProjectChange = (projectId) => {
+    console.log('=== FRONTEND DEBUG: handleProjectChange called with projectId:', projectId)
+    console.log('=== FRONTEND DEBUG: Current selectedProject:', selectedProject)
     setSelectedProject(projectId)
     setSelectedFolder(null)
+    console.log('=== FRONTEND DEBUG: State updated, projectId:', projectId, 'folder cleared')
   }
 
   const handleFolderSelect = (folderId) => {
@@ -509,20 +590,46 @@ const Documents = () => {
   }, [isAdminOrDoctor])
 
   const handleAssignSignature = useCallback(async (values) => {
+    setAssigningSignature(true)
+    
+    // Add timeout to prevent hanging
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Request timeout - signature request may still be processing')), 45000) // 45 second timeout
+    })
+    
     try {
-      await signatureService.assignDocument(
-        selectedDocumentForSignature.id,
-        values.assignedToUserId,
-        values.message || null
-      )
-      message.success('Document sent for signing successfully')
-      setSignatureModalVisible(false)
-      signatureForm.resetFields()
-      setSelectedDocumentForSignature(null)
+      await Promise.race([
+        signatureService.assignDocument(
+          selectedDocumentForSignature.id,
+          values.assignedToUserId,
+          values.message || null
+        ),
+        timeoutPromise
+      ])
+      
+      // Show success message
+      message.success({
+        content: 'Signature sent successfully!',
+        duration: 3,
+      })
+      
+      // Close modal after a brief delay so user sees the success message
+      setTimeout(() => {
+        setSignatureModalVisible(false)
+        signatureForm.resetFields()
+        setSelectedDocumentForSignature(null)
+        setAssigningSignature(false)
+      }, 1500)
     } catch (error) {
-      message.error(error.response?.data?.message || 'Failed to assign document for signing')
+      console.error('Error assigning signature:', error)
+      if (error.message && error.message.includes('timeout')) {
+        message.warning('Request is taking longer than expected. The signature request may still be processing. Please check the Signatures page.')
+      } else {
+        message.error(error.response?.data?.message || 'Failed to assign document for signing')
+      }
+      setAssigningSignature(false)
     }
-  }, [selectedDocumentForSignature])
+  }, [selectedDocumentForSignature, signatureForm])
 
   const handleRevokePermission = async (permissionId) => {
     try {
@@ -673,7 +780,12 @@ const Documents = () => {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
   }
 
-  const columns = useMemo(() => [
+  console.log('=== FRONTEND DEBUG: Creating columns array, isAdminOrDoctor:', isAdminOrDoctor, 'isAdmin:', isAdmin, 'hasRestrictedAccess:', hasRestrictedAccess, 'documentPermissionsMap keys:', Object.keys(documentPermissionsMap))
+  
+  const columns = useMemo(() => {
+    console.log('=== FRONTEND DEBUG: useMemo columns function executing')
+    try {
+      return [
     {
       title: 'File Name',
       dataIndex: 'originalFileName',
@@ -870,12 +982,54 @@ const Documents = () => {
         )
       }
     }
-  ], [isAdminOrDoctor, isAdmin, hasRestrictedAccess, documentPermissionsMap, checkDocumentPermission, handleDownload, openPermissionModal, openSignatureModal, handleDelete])
+      ]
+    } catch (error) {
+      console.error('=== FRONTEND DEBUG: ERROR creating columns array:', error)
+      console.error('=== FRONTEND DEBUG: Columns error stack:', error.stack)
+      // Return minimal columns on error
+      return [
+        { title: 'File Name', dataIndex: 'originalFileName', key: 'originalFileName' },
+        { title: 'Error', key: 'error', render: () => 'Error loading columns - check console' }
+      ]
+    }
+  }, [isAdminOrDoctor, isAdmin, hasRestrictedAccess, documentPermissionsMap, checkDocumentPermission, handleDownload, openPermissionModal, openSignatureModal, handleDelete]);
 
-  return (
-    <Content style={{ margin: '24px 16px 0' }}>
-      <div style={{ padding: 24, minHeight: 360 }}>
-        <Title level={3} style={{ marginBottom: 24 }}>Document Management</Title>
+  console.log('=== FRONTEND DEBUG: About to render Documents component')
+  console.log('=== FRONTEND DEBUG: Current state:', {
+    selectedProject,
+    selectedFolder,
+    documentsCount: documents?.length || 0,
+    projectsCount: projects?.length || 0,
+    foldersCount: folders?.length || 0,
+    loading,
+    isAdminOrDoctor,
+    hasRestrictedAccess,
+    columnsCount: columns?.length
+  })
+  console.log('=== FRONTEND DEBUG: Documents array:', documents)
+  console.log('=== FRONTEND DEBUG: Columns array:', columns)
+  
+  // CRITICAL: Check if columns is valid before rendering
+  if (!columns || !Array.isArray(columns) || columns.length === 0) {
+    console.error('=== FRONTEND DEBUG: FATAL - columns is invalid:', columns)
+    return (
+      <Content style={{ margin: '24px 16px 0' }}>
+        <div style={{ padding: 24, minHeight: 360 }}>
+          <Title level={3} style={{ marginBottom: 24, color: 'red' }}>Error: Invalid Columns</Title>
+          <Card>
+            <p>Columns array is invalid. Check console for details.</p>
+            <p>Columns: {JSON.stringify(columns)}</p>
+          </Card>
+        </div>
+      </Content>
+    )
+  }
+  
+  try {
+    return (
+      <Content style={{ margin: '24px 16px 0' }}>
+        <div style={{ padding: 24, minHeight: 360 }}>
+          <Title level={3} style={{ marginBottom: 24 }}>Document Management</Title>
 
         <Card style={{ marginBottom: 16 }}>
           <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -998,6 +1152,13 @@ const Documents = () => {
             )}
             <Col span={hasRestrictedAccess ? 24 : 18}>
               <Card>
+                {/* DEBUG INFO - Remove after fixing */}
+                <div style={{ padding: 10, background: '#f0f0f0', marginBottom: 10, fontSize: '12px' }}>
+                  <strong>DEBUG:</strong> Documents: {documents?.length || 0} | 
+                  Loading: {loading ? 'Yes' : 'No'} | 
+                  Project: {selectedProject} | 
+                  Columns: {columns?.length || 0}
+                </div>
                 <div style={{ marginBottom: 16 }}>
                   {selectedFolder ? (
                     <Space>
@@ -1017,22 +1178,40 @@ const Documents = () => {
                     </Space>
                   )}
                 </div>
-                <Table
-                  columns={columns}
-                  dataSource={documents || []}
-                  rowKey="id"
-                  loading={loading}
-                  locale={{
-                    emptyText: hasRestrictedAccess 
-                      ? 'No documents found. You may not have permission to view documents in this project, or no documents exist.'
-                      : 'No documents found'
-                  }}
-                  pagination={{
-                    pageSize: 10,
-                    showSizeChanger: true,
-                    showTotal: (total) => `Total ${total} documents`
-                  }}
-                />
+                {(() => {
+                  console.log('=== FRONTEND DEBUG: Rendering Table with documents:', documents?.length, 'loading:', loading)
+                  console.log('=== FRONTEND DEBUG: Documents array:', documents)
+                  console.log('=== FRONTEND DEBUG: Columns:', columns?.length)
+                  try {
+                    return (
+                      <Table
+                        columns={columns}
+                        dataSource={documents || []}
+                        rowKey="id"
+                        loading={loading}
+                        locale={{
+                          emptyText: hasRestrictedAccess 
+                            ? 'No documents found. You may not have permission to view documents in this project, or no documents exist.'
+                            : 'No documents found'
+                        }}
+                        pagination={{
+                          pageSize: 10,
+                          showSizeChanger: true,
+                          showTotal: (total) => `Total ${total} documents`
+                        }}
+                      />
+                    )
+                  } catch (tableError) {
+                    console.error('=== FRONTEND DEBUG: ERROR rendering Table:', tableError)
+                    return (
+                      <div style={{ padding: 20, color: 'red' }}>
+                        <p>Error rendering table: {tableError.message}</p>
+                        <p>Documents count: {documents?.length || 0}</p>
+                        <p>Check console for details</p>
+                      </div>
+                    )
+                  }
+                })()}
               </Card>
             </Col>
           </Row>
@@ -1375,12 +1554,16 @@ const Documents = () => {
           title="Request Document Signature"
           open={signatureModalVisible}
           onCancel={() => {
-            setSignatureModalVisible(false)
-            signatureForm.resetFields()
-            setSelectedDocumentForSignature(null)
+            if (!assigningSignature) {
+              setSignatureModalVisible(false)
+              signatureForm.resetFields()
+              setSelectedDocumentForSignature(null)
+            }
           }}
           footer={null}
           width={500}
+          closable={!assigningSignature}
+          maskClosable={!assigningSignature}
         >
           <Form form={signatureForm} layout="vertical" onFinish={handleAssignSignature}>
             <Form.Item label="Document">
@@ -1425,8 +1608,8 @@ const Documents = () => {
 
             <Form.Item>
               <Space>
-                <Button type="primary" htmlType="submit">
-                  Send for Signature
+                <Button type="primary" htmlType="submit" loading={assigningSignature}>
+                  {assigningSignature ? 'Sending...' : 'Send for Signature'}
                 </Button>
                 <Button
                   onClick={() => {
@@ -1434,6 +1617,7 @@ const Documents = () => {
                     signatureForm.resetFields()
                     setSelectedDocumentForSignature(null)
                   }}
+                  disabled={assigningSignature}
                 >
                   Cancel
                 </Button>
@@ -1444,6 +1628,23 @@ const Documents = () => {
       </div>
     </Content>
   )
+  } catch (error) {
+    console.error('=== FRONTEND DEBUG: FATAL ERROR in Documents component render')
+    console.error('=== FRONTEND DEBUG: Error:', error)
+    console.error('=== FRONTEND DEBUG: Error stack:', error.stack)
+    return (
+      <Content style={{ margin: '24px 16px 0' }}>
+        <div style={{ padding: 24, minHeight: 360 }}>
+          <Title level={3} style={{ marginBottom: 24, color: 'red' }}>Error Loading Documents</Title>
+          <Card>
+            <p>An error occurred while rendering the Documents page.</p>
+            <p>Error: {error.message}</p>
+            <p>Please check the browser console for details.</p>
+          </Card>
+        </div>
+      </Content>
+    )
+  }
 }
 
 export default Documents

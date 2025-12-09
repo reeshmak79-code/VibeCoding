@@ -147,34 +147,72 @@ public class DocumentController {
     public ResponseEntity<List<DocumentResponse>> getProjectDocuments(
             @PathVariable Long projectId,
             Authentication authentication) {
-        List<Document> documents = documentRepository.findByProjectId(projectId);
+        System.out.println("=== DEBUG: getProjectDocuments called for projectId: " + projectId);
+        System.out.println("=== DEBUG: Authentication: " + authentication.getName());
         
-        // Filter by permissions for non-admin/doctor users
-        User currentUser = userRepository.findByUsername(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        
-        if (currentUser.getRole() != User.Role.ADMIN && currentUser.getRole() != User.Role.DOCTOR) {
-            documents = filterDocumentsByPermissions(documents, currentUser);
-        }
-        
-        List<DocumentResponse> response = documents.stream()
-                .filter(doc -> {
+        try {
+            List<Document> documents = documentRepository.findByProjectId(projectId);
+            System.out.println("=== DEBUG: Found " + (documents != null ? documents.size() : 0) + " documents from repository");
+            
+            // Filter by permissions for non-admin/doctor users
+            User currentUser = userRepository.findByUsername(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+            System.out.println("=== DEBUG: Current user role: " + currentUser.getRole());
+            
+            if (currentUser.getRole() != User.Role.ADMIN && currentUser.getRole() != User.Role.DOCTOR) {
+                System.out.println("=== DEBUG: Filtering documents by permissions");
+                documents = filterDocumentsByPermissions(documents, currentUser);
+                System.out.println("=== DEBUG: After permission filter: " + documents.size() + " documents");
+            }
+            
+            System.out.println("=== DEBUG: Processing " + documents.size() + " documents for response");
+            List<DocumentResponse> response = new java.util.ArrayList<>();
+            int successCount = 0;
+            int errorCount = 0;
+            
+            for (Document doc : documents) {
+                try {
+                    System.out.println("=== DEBUG: Processing document ID: " + doc.getId() + 
+                            ", fileName: " + doc.getFileName() + 
+                            ", documentType: " + (doc.getDocumentType() != null ? doc.getDocumentType() : "NULL") +
+                            ", project: " + (doc.getProject() != null ? doc.getProject().getId() : "NULL"));
+                    
                     // Filter out documents with null project (data integrity issue)
-                    return doc.getProject() != null;
-                })
-                .map(doc -> {
-                    try {
-                        return new DocumentResponse(doc);
-                    } catch (Exception e) {
-                        // Log error but don't crash - return null and filter it out
-                        System.err.println("Error creating DocumentResponse for document ID " + doc.getId() + ": " + e.getMessage());
-                        e.printStackTrace();
-                        return null;
+                    if (doc.getProject() == null) {
+                        System.out.println("=== DEBUG: Skipping document " + doc.getId() + " - null project");
+                        errorCount++;
+                        continue;
                     }
-                })
-                .filter(docResponse -> docResponse != null)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(response);
+                    
+                    DocumentResponse docResponse = new DocumentResponse(doc);
+                    response.add(docResponse);
+                    successCount++;
+                    System.out.println("=== DEBUG: Successfully created DocumentResponse for document ID: " + doc.getId());
+                } catch (Exception e) {
+                    // Log error but don't crash - skip this document
+                    System.err.println("=== ERROR: Failed to create DocumentResponse for document ID " + doc.getId());
+                    System.err.println("=== ERROR: Exception type: " + e.getClass().getName());
+                    System.err.println("=== ERROR: Exception message: " + e.getMessage());
+                    System.err.println("=== ERROR: Document details - ID: " + doc.getId() + 
+                            ", fileName: " + doc.getFileName() + 
+                            ", documentType: " + (doc.getDocumentType() != null ? doc.getDocumentType() : "NULL") +
+                            ", project: " + (doc.getProject() != null ? doc.getProject().getId() : "NULL") +
+                            ", folder: " + (doc.getFolder() != null ? doc.getFolder().getId() : "NULL"));
+                    e.printStackTrace();
+                    errorCount++;
+                }
+            }
+            
+            System.out.println("=== DEBUG: Response created - Success: " + successCount + ", Errors: " + errorCount + ", Total: " + response.size());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            System.err.println("=== FATAL ERROR in getProjectDocuments for projectId " + projectId);
+            System.err.println("=== FATAL ERROR: Exception type: " + e.getClass().getName());
+            System.err.println("=== FATAL ERROR: Exception message: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new java.util.ArrayList<>());
+        }
     }
     
     @GetMapping("/folder/{folderId}")

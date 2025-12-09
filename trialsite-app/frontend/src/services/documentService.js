@@ -24,8 +24,25 @@ export const documentService = {
   },
 
   getProjectDocuments: async (projectId) => {
-    const response = await axios.get(`${API_URL}/project/${projectId}`)
-    return response.data
+    console.log('=== FRONTEND DEBUG: documentService.getProjectDocuments called for projectId:', projectId)
+    try {
+      console.log('=== FRONTEND DEBUG: Making axios GET request to:', `${API_URL}/project/${projectId}`)
+      const response = await axios.get(`${API_URL}/project/${projectId}`)
+      console.log('=== FRONTEND DEBUG: Axios response received:', response)
+      console.log('=== FRONTEND DEBUG: Response status:', response.status)
+      console.log('=== FRONTEND DEBUG: Response data type:', typeof response.data)
+      console.log('=== FRONTEND DEBUG: Response data is array?', Array.isArray(response.data))
+      console.log('=== FRONTEND DEBUG: Response data length:', response.data?.length)
+      console.log('=== FRONTEND DEBUG: Response data:', JSON.stringify(response.data, null, 2))
+      return response.data
+    } catch (error) {
+      console.error('=== FRONTEND DEBUG: Error in documentService.getProjectDocuments')
+      console.error('=== FRONTEND DEBUG: Error object:', error)
+      console.error('=== FRONTEND DEBUG: Error response:', error.response)
+      console.error('=== FRONTEND DEBUG: Error response data:', error.response?.data)
+      console.error('=== FRONTEND DEBUG: Error response status:', error.response?.status)
+      throw error
+    }
   },
 
   getFolderDocuments: async (folderId) => {

@@ -53,7 +53,10 @@ const Signatures = () => {
 
   const handleSignNow = async (signature) => {
     try {
+      message.loading('Getting signing URL...', 0) // Show loading message
       const response = await signatureService.getSigningUrl(signature.id)
+      message.destroy() // Remove loading message
+      
       if (response.signingUrl) {
         // Open PandaDoc signing URL in new window
         window.open(response.signingUrl, '_blank')
@@ -66,7 +69,16 @@ const Signatures = () => {
         message.error('Signing URL not available. Please contact administrator.')
       }
     } catch (error) {
-      message.error(error.response?.data?.message || 'Failed to get signing URL')
+      message.destroy() // Remove loading message
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to get signing URL'
+      if (errorMessage.includes('still being processed') || errorMessage.includes('wait')) {
+        message.warning({
+          content: errorMessage + ' You can try again in a few moments.',
+          duration: 5,
+        })
+      } else {
+        message.error(errorMessage)
+      }
     }
   }
 

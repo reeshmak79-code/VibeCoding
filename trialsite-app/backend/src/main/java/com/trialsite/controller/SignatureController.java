@@ -18,6 +18,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
@@ -91,28 +92,81 @@ public class SignatureController {
             
             // Upload to PandaDoc and create signing request
             try {
+                System.out.println("=== DEBUG SignatureController: Starting PandaDoc upload");
+                System.out.println("=== DEBUG SignatureController: Document ID: " + document.getId());
+                System.out.println("=== DEBUG SignatureController: Document path: " + document.getFilePath());
+                System.out.println("=== DEBUG SignatureController: Recipient email: " + assignedTo.getEmail());
+                System.out.println("=== DEBUG SignatureController: Recipient name: " + assignedTo.getFullName());
+                
                 String documentPath = document.getFilePath();
+                
+                // Verify file exists before attempting upload
+                java.nio.file.Path filePath = Paths.get(documentPath);
+                if (!Paths.get(documentPath).isAbsolute()) {
+                    // If relative path, resolve against backend directory
+                    String workingDir = System.getProperty("user.dir");
+                    System.out.println("=== DEBUG SignatureController: Working directory: " + workingDir);
+                    if (workingDir.endsWith("backend")) {
+                        filePath = Paths.get(workingDir, documentPath);
+                    } else {
+                        filePath = Paths.get(workingDir, "backend", documentPath);
+                    }
+                }
+                
+                System.out.println("=== DEBUG SignatureController: Resolved file path: " + filePath.toAbsolutePath());
+                
+                if (!java.nio.file.Files.exists(filePath)) {
+                    System.err.println("=== ERROR SignatureController: File not found at: " + filePath.toAbsolutePath());
+                    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                            .body(new MessageResponse("Document file not found: " + filePath.toAbsolutePath()));
+                }
+                
+                System.out.println("=== DEBUG SignatureController: File exists, calling PandaDoc service");
                 Map<String, String> pandaDocResult = pandaDocService.createDocumentForSigning(
-                        documentPath,
+                        filePath.toString(),
                         document.getOriginalFileName(),
                         assignedTo.getEmail(),
                         assignedTo.getFullName(),
                         request.getMessage()
                 );
+                System.out.println("=== DEBUG SignatureController: PandaDoc result: " + pandaDocResult);
                 
                 // Update signature with PandaDoc info
                 signature.setPandadocDocumentId(pandaDocResult.get("pandadocDocumentId"));
-                signature.setSigningUrl(pandaDocResult.get("signingUrl"));
-                signature.setStatus(DocumentSignature.SignatureStatus.SENT);
+                String signingUrl = pandaDocResult.get("signingUrl");
+                if (signingUrl != null && !signingUrl.isEmpty()) {
+                    signature.setSigningUrl(signingUrl);
+                }
+                // Status is SENT if we got a URL, otherwise PENDING (will be sent when ready)
+                if (signingUrl != null && !signingUrl.isEmpty()) {
+                    signature.setStatus(DocumentSignature.SignatureStatus.SENT);
+                } else {
+                    signature.setStatus(DocumentSignature.SignatureStatus.PENDING);
+                }
                 signature = signatureRepository.save(signature);
                 
                 return ResponseEntity.ok(new SignatureResponse(signature));
             } catch (Exception e) {
                 // If PandaDoc fails, mark as error but keep the record
+                System.err.println("=== ERROR SignatureController: Exception in PandaDoc upload");
+                System.err.println("=== ERROR SignatureController: Exception type: " + e.getClass().getName());
+                System.err.println("=== ERROR SignatureController: Exception message: " + e.getMessage());
+                e.printStackTrace();
+                
                 signature.setStatus(DocumentSignature.SignatureStatus.CANCELLED);
                 signatureRepository.save(signature);
+                
+                // Provide user-friendly error messages
+                String errorMessage = e.getMessage();
+                if (errorMessage != null && errorMessage.contains("email-not-verified")) {
+                    errorMessage = "The recipient's email address is not verified in PandaDoc. " +
+                            "Please verify the email address in your PandaDoc account settings before sending signature requests.";
+                } else if (errorMessage != null && errorMessage.contains("403")) {
+                    errorMessage = "Access denied by PandaDoc. Please check your API key permissions and account settings.";
+                }
+                
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(new MessageResponse("Failed to create signing request in PandaDoc: " + e.getMessage()));
+                        .body(new MessageResponse("Failed to create signing request in PandaDoc: " + errorMessage));
             }
             
         } catch (Exception e) {
@@ -167,13 +221,31 @@ public class SignatureController {
                         .body(new MessageResponse("Access denied. You are not assigned to sign this document."));
             }
             
-            // Get or refresh signing URL
+            // Always try to get a fresh signing URL (don't use stored placeholder URLs)
             String signingUrl = signature.getSigningUrl();
-            if (signingUrl == null || signingUrl.isEmpty()) {
+            boolean isPlaceholder = signingUrl != null && signingUrl.contains("/document/") && !signingUrl.contains("/s/");
+            
+            // If no URL or it's a placeholder, get a fresh one
+            if (signingUrl == null || signingUrl.isEmpty() || isPlaceholder) {
                 if (signature.getPandadocDocumentId() != null) {
-                    signingUrl = pandaDocService.getSigningUrl(signature.getPandadocDocumentId());
-                    signature.setSigningUrl(signingUrl);
-                    signatureRepository.save(signature);
+                    try {
+                        // Get recipient email from the assigned user
+                        String recipientEmail = signature.getAssignedToUser().getEmail();
+                        System.out.println("=== DEBUG SignatureController: Getting signing URL for recipient: " + recipientEmail);
+                        signingUrl = pandaDocService.getSigningUrl(signature.getPandadocDocumentId(), recipientEmail);
+                        signature.setSigningUrl(signingUrl);
+                        signatureRepository.save(signature);
+                        System.out.println("=== DEBUG SignatureController: Got fresh signing URL: " + signingUrl);
+                    } catch (Exception e) {
+                        System.err.println("=== ERROR SignatureController: Failed to get signing URL: " + e.getMessage());
+                        // If document isn't ready yet, return a helpful message
+                        if (e.getMessage() != null && (e.getMessage().contains("409") || e.getMessage().contains("not ready"))) {
+                            return ResponseEntity.status(HttpStatus.ACCEPTED)
+                                    .body(new MessageResponse("Document is still being processed by PandaDoc. Please try again in a few moments."));
+                        }
+                        return ResponseEntity.badRequest()
+                                .body(new MessageResponse("Error getting signing URL: " + e.getMessage()));
+                    }
                 } else {
                     return ResponseEntity.badRequest()
                             .body(new MessageResponse("Signing URL not available. Please contact administrator."));
